@@ -10,8 +10,11 @@ pub mod site_builder {
         dest_dir: PathBuf,
         src_dir: PathBuf,
         components_dir: String,
+        layout_dir: String,
         cache: HashMap<PathBuf, String>,
-        re: Regex,
+        component_regex: Regex,
+        layout_regex: Regex,
+        layout_content_regex: Regex,
     }
 
     impl SiteBuilder {
@@ -20,13 +23,17 @@ pub mod site_builder {
                 dest_dir: base_dir.join("build"),
                 src_dir: base_dir.join("src"),
                 components_dir: "el-components".to_string(),
+                layout_dir: "el-layouts".to_string(),
                 cache: HashMap::new(),
-                re: Regex::new(r#"<el-component\s+src="([^"]*)"\s*>(.*?)</el-component>"#).unwrap(),
+                component_regex: Regex::new(r#"<el-component\s+name="([^"]*)"\s*>(.*?)</el-component>"#).unwrap(),
+                layout_regex: Regex::new(r#"<el-layout\s+name="([^"]*)"\s*>(.*?)</el-layout>"#).unwrap(),
+                layout_content_regex: Regex::new(r#"<el-content\s*/>"#).unwrap(),
             }
         }
 
         fn flatten_file(&mut self, file: &Path) {
             let result = self.replace_components(&file);
+            let result = self.replace_layout(&result);
             let dest_path = self.dest_dir.join(file);
             if let Some(parent) = dest_path.parent() {
                 if let Err(e) = fs::create_dir_all(parent) {
@@ -62,7 +69,7 @@ pub mod site_builder {
         }
 
         fn directory_to_ignore(&self, path: &Path) -> bool {
-            path.starts_with(&self.components_dir)
+            path.starts_with(&self.components_dir) || path.starts_with(&self.layout_dir)
         }
 
         fn process_file(&mut self, path: &Path) {
@@ -97,13 +104,20 @@ pub mod site_builder {
                 return file_contents.clone();
             }
     
-            let text = fs::read_to_string(self.src_dir.join(path)).unwrap();
+            let src_path = self.src_dir.join(path);
+            let text = match fs::read_to_string(&src_path) {
+                Ok(content) => content,
+                Err(e) => {
+                    eprintln!("Failed to read file [{}]: {}", src_path.display(), e);
+                    return String::new();
+                }
+            };
             let mut result = text.clone();
     
-            let captures: Vec<_> = self.re.captures_iter(&text).collect();
+            let captures: Vec<_> = self.component_regex.captures_iter(&text).collect();
             for captures in captures {
                 if let Some(src) = captures.get(1) {
-                    let file_path = format!("el-components/{}", src.as_str().trim_end_matches(".html").to_string() + ".html");
+                    let file_path = format!("{}/{}", self.components_dir, src.as_str().trim_end_matches(".html").to_string() + ".html");
                     let file_contents = self.replace_components(Path::new(&file_path));
                     result = result.replace(&captures[0], &file_contents);
                 }
@@ -111,6 +125,19 @@ pub mod site_builder {
     
             self.cache.insert(dest_path, result.clone());
             result
+        }
+        
+        fn replace_layout(&mut self, content: &str) -> String {
+            let mut result = content.to_string();
+            if let Some(captures) = self.layout_regex.captures(content) {
+                if let Some(src) = captures.get(1) {
+                    let file_path = format!("{}/{}", self.layout_dir, src.as_str().trim_end_matches(".html").to_string() + ".html");
+                    let file_contents = self.replace_components(Path::new(&file_path));
+                    let layout_content = self.layout_content_regex.replace_all(&file_contents, &captures[2]);
+                    result = result.replace(&captures[0], &layout_content);
+                }
+            }
+            self.layout_regex.replace(&result, "").to_string()
         }
     }
 }

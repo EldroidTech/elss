@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use regex::Regex;
@@ -32,7 +32,8 @@ pub mod site_builder {
         }
 
         fn flatten_file(&mut self, file: &Path) {
-            let result = self.replace_components(&file);
+            let mut processing = HashSet::new();
+            let result = self.replace_components(&file, &mut processing);
             let result = self.replace_layout(&result);
             let dest_path = self.dest_dir.join(file);
             if let Some(parent) = dest_path.parent() {
@@ -97,7 +98,7 @@ pub mod site_builder {
             }
         }
 
-        fn replace_components(&mut self, path: &Path) -> String {
+        fn replace_components(&mut self, path: &Path, processing: &mut HashSet<String>) -> String {
             let dest_path = self.dest_dir.join(path);
     
             if let Some(file_contents) = self.cache.get(&dest_path) {
@@ -117,8 +118,17 @@ pub mod site_builder {
             let captures: Vec<_> = self.component_regex.captures_iter(&text).collect();
             for captures in captures {
                 if let Some(src) = captures.get(1) {
-                    let file_path = format!("{}/{}", self.components_dir, src.as_str().trim_end_matches(".html").to_string() + ".html");
-                    let file_contents = self.replace_components(Path::new(&file_path));
+                    let component_path = format!("{}/{}", self.components_dir, src.as_str().trim_end_matches(".html").to_string() + ".html");
+                    
+                    if processing.contains(&component_path) {
+                        eprintln!("Circular dependency detected for component [{}]", component_path);
+                        continue;
+                    }
+    
+                    processing.insert(component_path.clone());
+                    let file_contents = self.replace_components(Path::new(&component_path), processing);
+                    processing.remove(&component_path);
+    
                     result = result.replace(&captures[0], &file_contents);
                 }
             }
@@ -132,12 +142,13 @@ pub mod site_builder {
             if let Some(captures) = self.layout_regex.captures(content) {
                 if let Some(src) = captures.get(1) {
                     let file_path = format!("{}/{}", self.layout_dir, src.as_str().trim_end_matches(".html").to_string() + ".html");
-                    let file_contents = self.replace_components(Path::new(&file_path));
+                    let mut processing = HashSet::new();
+                    let file_contents = self.replace_components(Path::new(&file_path), &mut processing);
                     let layout_content = self.layout_content_regex.replace_all(&file_contents, &captures[2]);
-                    result = result.replace(&captures[0], &layout_content);
+                    result = layout_content.to_string();
                 }
             }
-            self.layout_regex.replace(&result, "").to_string()
+            result
         }
     }
 }

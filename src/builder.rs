@@ -33,7 +33,7 @@ pub mod site_builder {
 
         fn flatten_file(&mut self, file: &Path) {
             let mut processing = HashSet::new();
-            let result = self.replace_components(&file, &mut processing);
+            let result = self.replace_components(file, &mut processing);
             let result = self.replace_layout(&result);
             let dest_path = self.dest_dir.join(file);
             if let Some(parent) = dest_path.parent() {
@@ -56,8 +56,8 @@ pub mod site_builder {
         }
 
         fn copy_to_output(&self, path: &Path) {
-            let dest_path = self.dest_dir.join(&path);
-            let src_path = self.src_dir.join(&path);
+            let dest_path = self.dest_dir.join(path);
+            let src_path = self.src_dir.join(path);
             if let Some(parent) = dest_path.parent() {
                 if let Err(e) = fs::create_dir_all(parent) {
                     eprintln!("Failed to create directory: {}", e);
@@ -75,9 +75,9 @@ pub mod site_builder {
 
         fn process_file(&mut self, path: &Path) {
             if path.extension().and_then(|s| s.to_str()) == Some("html") {
-                self.flatten_file(&path);
+                self.flatten_file(path);
             } else {
-                self.copy_to_output(&path);
+                self.copy_to_output(path);
             }
         }
 
@@ -99,6 +99,7 @@ pub mod site_builder {
         }
 
         fn replace_components(&mut self, path: &Path, processing: &mut HashSet<String>) -> String {
+            println!("Processing file: {}", path.display());
             let dest_path = self.dest_dir.join(path);
     
             if let Some(file_contents) = self.cache.get(&dest_path) {
@@ -144,7 +145,7 @@ pub mod site_builder {
                     let file_path = format!("{}/{}", self.layout_dir, src.as_str().trim_end_matches(".html").to_string() + ".html");
                     let mut processing = HashSet::new();
                     let file_contents = self.replace_components(Path::new(&file_path), &mut processing);
-                    let layout_content = self.layout_content_regex.replace_all(&file_contents, &captures[2]);
+                    let layout_content = self.layout_content_regex.replace_all(&file_contents, content);
                     result = layout_content.to_string();
                 }
             }
